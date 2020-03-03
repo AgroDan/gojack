@@ -8,6 +8,7 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/user"
@@ -16,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 )
+
+const ENVIRON string = "environ"
 
 func main() {
 	// first and foremost, let's confirm that we're root.
@@ -43,6 +46,39 @@ func areWeRoot() bool {
 		return true
 	}
 	return false
+}
+
+func newFindEnviron(startPath string) ([]string, error) {
+	if !strings.HasSuffix(startPath, "/") {
+		startPath += "/"
+	}
+	var pidSlice []string
+	var validEnviro []string
+	files, err := ioutil.ReadDir(startPath)
+	if err != nil {
+		// file read error
+		return validEnviro, err
+	}
+	// if this isn't catching anything, drop the /
+	rex, err := regexp.Compile(startPath + `\d+/`)
+	if err != nil {
+		// regex error for some reason
+		return validEnviro, err
+	}
+	for _, file := range files {
+		if rex.MatchString(file.Name()) {
+			pidSlice = append(pidSlice, file.Name())
+		}
+	}
+
+	for _, file := range pidSlice {
+		_, err := os.Stat(file + ENVIRON)
+		if !os.IsNotExist(err) {
+			// file exists, pop it into the validEnviro slice
+			validEnviro = append(validEnviro, file)
+		}
+	}
+	return validEnviro, err
 }
 
 func findEnviron(startPath string) ([]string, error) {
