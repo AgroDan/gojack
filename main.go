@@ -26,10 +26,21 @@ func main() {
 		fmt.Println("You must be root to run this application. Quitting...")
 		return
 	}
-	s, _ := findEnviron("/proc")
+	s, err := findEnviron("/proc")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("S:", s)
 	for idx, i := range s {
 		fmt.Println("Got:", idx, i)
 	}
+}
+
+func readEnviron(loc string) bool {
+	// this will read the environment file and
+	// return True if the SSH_AUTH_SOCK variable exists
+	
+	e, err := ioutil.ReadAll()
 }
 
 func areWeRoot() bool {
@@ -48,40 +59,40 @@ func areWeRoot() bool {
 	return false
 }
 
-func newFindEnviron(startPath string) ([]string, error) {
+func findEnviron(startPath string) ([]string, error) {
 	if !strings.HasSuffix(startPath, "/") {
 		startPath += "/"
 	}
 	var pidSlice []string
-	var validEnviro []string
+	var validEnviron []string
 	files, err := ioutil.ReadDir(startPath)
 	if err != nil {
 		// file read error
-		return validEnviro, err
+		return validEnviron, err
 	}
 	// if this isn't catching anything, drop the /
-	rex, err := regexp.Compile(startPath + `\d+/`)
+	rex, err := regexp.Compile(startPath + `\d+`)
 	if err != nil {
 		// regex error for some reason
-		return validEnviro, err
+		return validEnviron, err
 	}
 	for _, file := range files {
-		if rex.MatchString(file.Name()) {
-			pidSlice = append(pidSlice, file.Name())
+		fullPath := startPath + file.Name()
+		if rex.MatchString(fullPath) {
+			pidSlice = append(pidSlice, fullPath)
 		}
 	}
 
-	for _, file := range pidSlice {
-		_, err := os.Stat(file + ENVIRON)
-		if !os.IsNotExist(err) {
-			// file exists, pop it into the validEnviro slice
-			validEnviro = append(validEnviro, file)
+	for _, pid := range pidSlice {
+		// sometimes go is just weird man
+		if _, err := os.Stat(pid + "/" + ENVIRON); !os.IsNotExist(err) {
+			validEnviron = append(validEnviron, pid + "/" + ENVIRON)
 		}
 	}
-	return validEnviro, err
+	return validEnviron, err
 }
 
-func findEnviron(startPath string) ([]string, error) {
+func old_and_busted_findEnviron(startPath string) ([]string, error) {
 	// This function will return a slice of strings pointing
 	// to the location of an environ file. This will be split
 	// to a workqueue later.
