@@ -13,7 +13,6 @@ import (
 	"log"
 	"os"
 	"os/user"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -31,17 +30,48 @@ func main() {
 		fmt.Println("You must be root to run this application. Quitting...")
 		return
 	}
-	s, err := findEnviron("/proc")
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("S:", s)
-	for idx, i := range s {
-		fmt.Println("Got:", idx, i)
+	loopThrough("/proc")
+}
+
+func loopThrough(loc string) {
+	// This function will do most of the setup.
+
+	for {
+		validPids, err := findEnviron(loc)
+		if err != nil {
+			log.Println("Error:", err)
+		}
+		pidQueue := make(chan string, len(validPids))
+		res := make(chan string) // going unbuffererd because I'm crazy like that
+
+		for _, pid := range validPids {
+			pidQueue <- pid
+		}
+		go parseProc(pidQueue, res)
+		go parseProc(pidQueue, res)
+
+		for i := 0; i < len(validPids); i++ {
+			myRes := <-res
+			if myRes != "nope" {
+				// YES I KNOW THIS IS DUMB FUCK OFF
+				fmt.Println("Got one:", myRes)
+			}
+		}
 	}
 }
 
-func dumpEnviron(loc) (string, error) {
+func parseProc(jobQueue <-chan string, resQueue chan<- string) {
+	for pid := range jobQueue {
+		environ, err := dumpEnviron(pid)
+		if err != nil {
+			resQueue <- "nope"
+			continue
+		}
+		resQueue <- environ
+	}
+}
+
+func dumpEnviron(loc string) (string, error) {
 	// assuming that the environ variable has the SSH_AUTH_SOCK
 	// there, this will dump the actual socket as a string. This
 	// may be a little bit of a duplication of effort but I wanted
@@ -56,12 +86,13 @@ func dumpEnviron(loc) (string, error) {
 	envVars := bytes.SplitN(e, nullByte, -1)
 	for _, env := range envVars {
 		line := string(env)
-		res := strings.Split(line, "=", 2)
+		res := strings.Split(line, "=")
 		if res[0] == AUTHSOCK {
 			return res[1], err
 		}
 	}
-
+	err = fmt.Errorf("could not find SSH agent socket")
+	return ret, err
 }
 
 func isEnviron(loc string) bool {
@@ -84,7 +115,7 @@ func isEnviron(loc string) bool {
 	for _, env := range envVars {
 		line := string(env)
 		// now split by =
-		res := strings.Split(line, "=", 2)
+		res := strings.Split(line, "=")
 		if res[0] == AUTHSOCK {
 			return true
 		}
@@ -141,35 +172,35 @@ func findEnviron(startPath string) ([]string, error) {
 	return validEnviron, err
 }
 
-func old_and_busted_findEnviron(startPath string) ([]string, error) {
-	// This function will return a slice of strings pointing
-	// to the location of an environ file. This will be split
-	// to a workqueue later.
-	if !strings.HasSuffix(startPath, "/") {
-		startPath += "/"
-	}
-	// just making sure we end with a /
-	rex, err := regexp.Compile(startPath + `\d+/environ`)
+// func old_and_busted_findEnviron(startPath string) ([]string, error) {
+// 	// This function will return a slice of strings pointing
+// 	// to the location of an environ file. This will be split
+// 	// to a workqueue later.
+// 	if !strings.HasSuffix(startPath, "/") {
+// 		startPath += "/"
+// 	}
+// 	// just making sure we end with a /
+// 	rex, err := regexp.Compile(startPath + `\d+/environ`)
 
-	// create the slice to append to
-	var enviroSlice []string
+// 	// create the slice to append to
+// 	var enviroSlice []string
 
-	if err := filepath.Walk(startPath, func(path string, info os.FileInfo, err error) error {
-		fmt.Println("On:", path)
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if rex.MatchString(path) {
-			enviroSlice = append(enviroSlice, path)
-		}
-		return nil
-	}); err != nil {
-		log.Println("Could not read path!")
-		log.Println(err)
-		return enviroSlice, err
-	}
-	return enviroSlice, err
-}
+// 	if err := filepath.Walk(startPath, func(path string, info os.FileInfo, err error) error {
+// 		fmt.Println("On:", path)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		if info.IsDir() {
+// 			return nil
+// 		}
+// 		if rex.MatchString(path) {
+// 			enviroSlice = append(enviroSlice, path)
+// 		}
+// 		return nil
+// 	}); err != nil {
+// 		log.Println("Could not read path!")
+// 		log.Println(err)
+// 		return enviroSlice, err
+// 	}
+// 	return enviroSlice, err
+// }
